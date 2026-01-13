@@ -8,9 +8,47 @@ function onOpen() {
     .addToUi();
 }
 
+// 진행률 팝업 표시
+function showProgress(title) {
+  const html = HtmlService.createHtmlOutput(`
+    <html>
+      <head>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 20px; text-align: center; }
+          .progress-container { width: 100%; background-color: #e0e0e0; border-radius: 10px; margin: 20px 0; }
+          .progress-bar { width: 0%; height: 30px; background-color: #4a86e8; border-radius: 10px; transition: width 0.3s; }
+          .status { font-size: 14px; color: #666; margin-top: 10px; }
+          .percent { font-size: 24px; font-weight: bold; color: #4a86e8; }
+        </style>
+      </head>
+      <body>
+        <h3>${title}</h3>
+        <div class="percent" id="percent">0%</div>
+        <div class="progress-container">
+          <div class="progress-bar" id="progressBar"></div>
+        </div>
+        <div class="status" id="status">준비 중...</div>
+        <script>
+          function updateProgress(percent, status) {
+            document.getElementById('percent').textContent = percent + '%';
+            document.getElementById('progressBar').style.width = percent + '%';
+            document.getElementById('status').textContent = status;
+          }
+        </script>
+      </body>
+    </html>
+  `)
+  .setWidth(400)
+  .setHeight(200);
+
+  SpreadsheetApp.getUi().showModelessDialog(html, title);
+  return html;
+}
+
 // 푸드 통합
 function mergeAllRegionsFood() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ui = SpreadsheetApp.getUi();
 
   const regionSheets = [
     '충청도', '경기도', '경상도', '전라도',
@@ -18,6 +56,18 @@ function mergeAllRegionsFood() {
     '울산시', '인천시', '강원도', '제주도',
     '서울시', '세종시'
   ];
+
+  // 진행률 시트 생성 (팝업과 통신용)
+  let progressSheet = ss.getSheetByName('_진행률');
+  if (!progressSheet) {
+    progressSheet = ss.insertSheet('_진행률');
+  }
+  progressSheet.clear();
+  progressSheet.getRange('A1').setValue(0);
+  progressSheet.getRange('B1').setValue('시작...');
+
+  // 팝업 표시
+  showProgressDialog('푸드 데이터 통합 중...');
 
   let mergedSheet = ss.getSheetByName('전체통합');
 
@@ -27,7 +77,6 @@ function mergeAllRegionsFood() {
     mergedSheet = ss.insertSheet('전체통합');
   }
 
-  // 헤더 (카테고리 추가)
   const headers = ['사업자번호', '상호명', '상세주소', '전화번호', '가입된 플랫폼', '타입', '카테고리'];
   mergedSheet.getRange(1, 1, 1, headers.length).setValues([headers]);
 
@@ -37,8 +86,15 @@ function mergeAllRegionsFood() {
     .setFontColor('#ffffff');
 
   let currentRow = 2;
+  const totalRegions = regionSheets.length;
 
-  regionSheets.forEach(regionName => {
+  regionSheets.forEach((regionName, index) => {
+    // 진행률 업데이트
+    const percent = Math.round(((index) / totalRegions) * 100);
+    progressSheet.getRange('A1').setValue(percent);
+    progressSheet.getRange('B1').setValue(`${regionName} 처리 중...`);
+    SpreadsheetApp.flush();
+
     const sheet = ss.getSheetByName(regionName);
 
     if (!sheet) {
@@ -53,19 +109,17 @@ function mergeAllRegionsFood() {
       return;
     }
 
-    // 푸드 원본: A(빈칸), B(타입), C(구), D(사업자번호), E(상호명), F(주소)
     const dataRange = sheet.getRange(2, 2, lastRow - 1, 5);
     const data = dataRange.getValues();
 
-    // 매핑: 사업자번호(D), 상호명(E), 상세주소(F), 전화번호(빈칸), 가입된플랫폼(빈칸), 타입(B), 카테고리(빈칸)
     const mappedData = data.map(row => [
-      row[2],  // 사업자번호 (D열)
-      row[3],  // 상호명 (E열)
-      row[4],  // 상세주소 (F열)
-      '',      // 전화번호
-      '',      // 가입된 플랫폼
-      row[0],  // 타입 (B열)
-      ''       // 카테고리 (푸드는 없음)
+      row[2],
+      row[3],
+      row[4],
+      '',
+      '',
+      row[0],
+      ''
     ]);
 
     if (mappedData.length > 0) {
@@ -77,17 +131,26 @@ function mergeAllRegionsFood() {
     Logger.log(`${regionName}: ${mappedData.length}개 행 추가 완료`);
   });
 
+  // 완료
+  progressSheet.getRange('A1').setValue(100);
+  progressSheet.getRange('B1').setValue('완료!');
+  SpreadsheetApp.flush();
+
   for (let i = 1; i <= 7; i++) {
     mergedSheet.autoResizeColumn(i);
   }
 
+  // 진행률 시트 삭제
+  ss.deleteSheet(progressSheet);
+
   Logger.log(`푸드 통합 완료: 총 ${currentRow - 2}개 행`);
-  SpreadsheetApp.getUi().alert(`푸드 통합 완료!\n총 ${currentRow - 2}개의 데이터가 통합되었습니다.`);
+  ui.alert(`푸드 통합 완료!\n총 ${currentRow - 2}개의 데이터가 통합되었습니다.`);
 }
 
 // 논푸드 통합
 function mergeAllRegionsNonFood() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ui = SpreadsheetApp.getUi();
 
   const regionSheets = [
     '충청도', '경기도', '경상도', '전라도',
@@ -95,6 +158,18 @@ function mergeAllRegionsNonFood() {
     '울산시', '인천시', '강원도', '제주도',
     '서울시', '세종시'
   ];
+
+  // 진행률 시트 생성
+  let progressSheet = ss.getSheetByName('_진행률');
+  if (!progressSheet) {
+    progressSheet = ss.insertSheet('_진행률');
+  }
+  progressSheet.clear();
+  progressSheet.getRange('A1').setValue(0);
+  progressSheet.getRange('B1').setValue('시작...');
+
+  // 팝업 표시
+  showProgressDialog('논푸드 데이터 통합 중...');
 
   let mergedSheet = ss.getSheetByName('전체통합');
 
@@ -104,7 +179,6 @@ function mergeAllRegionsNonFood() {
     mergedSheet = ss.insertSheet('전체통합');
   }
 
-  // 헤더 (카테고리 추가)
   const headers = ['사업자번호', '상호명', '상세주소', '전화번호', '가입된 플랫폼', '타입', '카테고리'];
   mergedSheet.getRange(1, 1, 1, headers.length).setValues([headers]);
 
@@ -114,8 +188,15 @@ function mergeAllRegionsNonFood() {
     .setFontColor('#ffffff');
 
   let currentRow = 2;
+  const totalRegions = regionSheets.length;
 
-  regionSheets.forEach(regionName => {
+  regionSheets.forEach((regionName, index) => {
+    // 진행률 업데이트
+    const percent = Math.round(((index) / totalRegions) * 100);
+    progressSheet.getRange('A1').setValue(percent);
+    progressSheet.getRange('B1').setValue(`${regionName} 처리 중...`);
+    SpreadsheetApp.flush();
+
     const sheet = ss.getSheetByName(regionName);
 
     if (!sheet) {
@@ -130,19 +211,17 @@ function mergeAllRegionsNonFood() {
       return;
     }
 
-    // 논푸드 원본: A(빈칸), B(타입), C(사업자번호), D(스토어명), E(광역시도명), F(시군구), G(주소), H(카테고리)
     const dataRange = sheet.getRange(2, 2, lastRow - 1, 7);
     const data = dataRange.getValues();
 
-    // 매핑: 사업자번호(C), 상호명(D), 상세주소(G), 전화번호(빈칸), 가입된플랫폼(빈칸), 타입(B), 카테고리(H)
     const mappedData = data.map(row => [
-      row[1],  // 사업자번호 (C열 = index 1)
-      row[2],  // 상호명/스토어명 (D열 = index 2)
-      row[5],  // 상세주소 (G열 = index 5)
-      '',      // 전화번호
-      '',      // 가입된 플랫폼
-      row[0],  // 타입 (B열 = index 0)
-      row[6]   // 카테고리 (H열 = index 6)
+      row[1],
+      row[2],
+      row[5],
+      '',
+      '',
+      row[0],
+      row[6]
     ]);
 
     if (mappedData.length > 0) {
@@ -154,10 +233,88 @@ function mergeAllRegionsNonFood() {
     Logger.log(`${regionName}: ${mappedData.length}개 행 추가 완료`);
   });
 
+  // 완료
+  progressSheet.getRange('A1').setValue(100);
+  progressSheet.getRange('B1').setValue('완료!');
+  SpreadsheetApp.flush();
+
   for (let i = 1; i <= 7; i++) {
     mergedSheet.autoResizeColumn(i);
   }
 
+  // 진행률 시트 삭제
+  ss.deleteSheet(progressSheet);
+
   Logger.log(`논푸드 통합 완료: 총 ${currentRow - 2}개 행`);
-  SpreadsheetApp.getUi().alert(`논푸드 통합 완료!\n총 ${currentRow - 2}개의 데이터가 통합되었습니다.`);
+  ui.alert(`논푸드 통합 완료!\n총 ${currentRow - 2}개의 데이터가 통합되었습니다.`);
+}
+
+// 진행률 다이얼로그
+function showProgressDialog(title) {
+  const html = HtmlService.createHtmlOutput(`
+    <html>
+      <head>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 20px; text-align: center; }
+          .progress-container { width: 100%; background-color: #e0e0e0; border-radius: 10px; margin: 20px 0; height: 30px; }
+          .progress-bar { width: 0%; height: 30px; background-color: #4a86e8; border-radius: 10px; transition: width 0.5s; }
+          .status { font-size: 14px; color: #666; margin-top: 10px; }
+          .percent { font-size: 28px; font-weight: bold; color: #4a86e8; }
+        </style>
+        <script>
+          function poll() {
+            google.script.run
+              .withSuccessHandler(function(result) {
+                if (result) {
+                  document.getElementById('percent').textContent = result.percent + '%';
+                  document.getElementById('progressBar').style.width = result.percent + '%';
+                  document.getElementById('status').textContent = result.status;
+
+                  if (result.percent < 100) {
+                    setTimeout(poll, 500);
+                  } else {
+                    document.getElementById('status').textContent = '완료! 이 창을 닫아주세요.';
+                    document.getElementById('progressBar').style.backgroundColor = '#34a853';
+                  }
+                } else {
+                  setTimeout(poll, 500);
+                }
+              })
+              .withFailureHandler(function() {
+                setTimeout(poll, 1000);
+              })
+              .getProgress();
+          }
+          poll();
+        </script>
+      </head>
+      <body>
+        <h3>${title}</h3>
+        <div class="percent" id="percent">0%</div>
+        <div class="progress-container">
+          <div class="progress-bar" id="progressBar"></div>
+        </div>
+        <div class="status" id="status">준비 중...</div>
+      </body>
+    </html>
+  `)
+  .setWidth(400)
+  .setHeight(220);
+
+  SpreadsheetApp.getUi().showModelessDialog(html, title);
+}
+
+// 진행률 조회 (팝업에서 호출)
+function getProgress() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const progressSheet = ss.getSheetByName('_진행률');
+
+  if (!progressSheet) {
+    return { percent: 0, status: '준비 중...' };
+  }
+
+  const percent = progressSheet.getRange('A1').getValue() || 0;
+  const status = progressSheet.getRange('B1').getValue() || '처리 중...';
+
+  return { percent: percent, status: status };
 }
