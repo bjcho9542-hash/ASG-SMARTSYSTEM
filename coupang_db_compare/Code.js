@@ -1,3 +1,5 @@
+// 바보
+
 function onOpen() {
   const ui = SpreadsheetApp.getUi();
   ui.createMenu('도구')
